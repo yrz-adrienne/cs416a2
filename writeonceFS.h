@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int wo_mount(char* file_name, void* mem_addr);
 int wo_unmount(void* mem_addr);
