@@ -37,7 +37,7 @@ void print_node(Node node) {
   if (node.type == 'i') {
     print_inode(*(INode*) &node);
   } else if (node.type == 'u'){
-    printf("unused node \n");
+    printf("Unused node \n");
   }
 }
 
