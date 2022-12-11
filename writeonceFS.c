@@ -99,6 +99,12 @@ int wo_unmount(void* mem_addr) {
   return 0;
 }
 
+int wo_open(char* file_name, int flags) {
+
+
+  return 0;
+}
+
 int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int result = wo_mount("test_disk", disk);
