@@ -1,6 +1,8 @@
 #include "writeonceFS.h"
 #include <stdio.h>
 
+#define DEBUG 1
+
 static FILE* disk_file;
 static Disk disk;
 
@@ -19,7 +21,7 @@ void format_disk(char* file_name) {
 
   fwrite(default_sb, sizeof(SuperBlock), 1, fdisk);
 
-  // make the arry for the nodes
+  // make the array for the nodes
   Node* nodes = malloc(NODES * sizeof(Node));
   for (int i=0; i< NODES; i++) {
     nodes[i].type = 'u'; // u is for unused
@@ -40,7 +42,7 @@ void format_disk(char* file_name) {
 int wo_mount(char* file_name, void* mem_addr) {
   disk_file = fopen(file_name, "r+"); // open up the the file for reading
   if (disk_file == NULL) {
-    fclose(disk_file);
+    //fclose(disk_file);
     printf("Disk does not exist, creating... \n");
     create_disk(file_name);
     printf("Formatting disk... \n");
@@ -99,7 +101,7 @@ int wo_unmount(void* mem_addr) {
 
 int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
-  int result = wo_mount("test_disk", disk);
+  int result = wo_mount("test_disk1", disk);
   print_superblock(disk->sb);
   int unmount_result = wo_unmount(disk);
 

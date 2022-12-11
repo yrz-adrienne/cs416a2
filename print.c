@@ -1,4 +1,4 @@
-#include "writeonceFS.h"
+#include "print.h"
 
 void print_disk_block(DiskBlock block) {
   if (block == NULL || block == 0) {
