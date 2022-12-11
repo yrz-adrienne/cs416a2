@@ -1,6 +1,8 @@
 #include "writeonceFS.h"
 #include <stdio.h>
 
+#define DEBUG 1
+
 static FILE* disk_file;
 static Disk disk;
 
@@ -19,7 +21,7 @@ void format_disk(char* file_name) {
 
   fwrite(default_sb, sizeof(SuperBlock), 1, fdisk);
 
-  // make the arry for the nodes
+  // make the array for the nodes
   Node* nodes = malloc(NODES * sizeof(Node));
   for (int i=0; i< NODES; i++) {
     nodes[i].type = 'u'; // u is for unused
@@ -40,22 +42,30 @@ void format_disk(char* file_name) {
 int wo_mount(char* file_name, void* mem_addr) {
   disk_file = fopen(file_name, "r+"); // open up the the file for reading
   if (disk_file == NULL) {
-    fclose(disk_file);
-    printf("Disk does not exist, creating... \n");
+    //fclose(disk_file); can't close a null file pointer
+    if(DEBUG){
+      printf("Disk does not exist, creating... \n");
+    }
     create_disk(file_name);
-    printf("Formatting disk... \n");
+    if(DEBUG){
+      printf("Formatting disk... \n");
+    }
     format_disk(file_name);
     disk_file = fopen(file_name, "r+"); // open up the the file for reading
-    printf("done \n");
+    if(DEBUG) printf("done \n");
   }
 
   // if bytes read is zero then we also need to build it
   int bytes_read = fread(&disk.sb, sizeof(SuperBlock), 1, disk_file);
   if (bytes_read == 0) {
-    printf("Disk is empty. Formatting.\n");
+    if(DEBUG) printf("Disk is empty. Formatting.\n");
     format_disk(file_name);
+    bytes_read = fread(&disk.sb, sizeof(SuperBlock), 1, disk_file); //update by reading newly formatted superblock
+    if(DEBUG) printf("read %d bytes\n", bytes_read); 
+
   } else {
-    printf("Read %d bytes of SuperBlock. \n", (int) sizeof(SuperBlock));
+    //printf("Read %d bytes of SuperBlock. \n", (int) sizeof(SuperBlock));
+    if(DEBUG) printf("read %d elements of %d (superblock) size\n", bytes_read, (int) sizeof(SuperBlock)); 
   }
   
   // if the valid byte on the super block isnt set, then it is invalid
@@ -110,7 +120,20 @@ int main(int argc, char** args) {
   int result = wo_mount("test_disk", disk);
   printf("%p \n", disk);
   print_superblock(disk->sb);
-  int unmount_result = wo_unmount(disk);
+  int unmount_resultnew = wo_unmount(disk);
+
+  //test_empty - create a new file each time with nothing in it
+  printf("disk exists but is empty\n");
+  int resultempty = wo_mount("test_empty", disk);
+  print_superblock(disk->sb);
+  int unmount_resultempty = wo_unmount(disk);
+
+  //read something previously created by this program
+  //this doesn't work - first run, valid disk char = t but marked as invalid
+  printf("disk was previously created\n");
+  int resultold = wo_mount("test_new", disk);
+  print_superblock(disk->sb);
+  int unmount_resultold = wo_unmount(disk);
 
   return 0;
 }
