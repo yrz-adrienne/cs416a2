@@ -81,16 +81,18 @@ int wo_mount(char* file_name, void* mem_addr) {
 }
 
 int wo_unmount(void* mem_addr) {
-  Disk disk = *(Disk*) &mem_addr;
+  Disk* disk = (Disk*) mem_addr;
+  printf("%p on unmount \n", disk);
+  print_superblock(disk->sb);
   
-  fwrite(&disk.sb, sizeof(SuperBlock), 1, disk_file);
+  fwrite(&disk->sb, sizeof(SuperBlock), 1, disk_file);
 
   for (int i = 0; i < NODES; i++) {
-    fwrite((void*) &(disk.nodes[i]), sizeof(Node), 1, disk_file);
+    fwrite((void*) &(disk->nodes[i]), sizeof(Node), 1, disk_file);
   }
 
   for (int i=0; i<BLOCKS; i++) {
-    fwrite((void*) &disk.blocks[i], sizeof(DiskBlock), 1, disk_file);
+    fwrite((void*) &disk->blocks[i], sizeof(DiskBlock), 1, disk_file);
   }
 
   fclose(disk_file);
@@ -100,6 +102,7 @@ int wo_unmount(void* mem_addr) {
 int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int result = wo_mount("test_disk", disk);
+  printf("%p \n", disk);
   print_superblock(disk->sb);
   int unmount_result = wo_unmount(disk);
 
