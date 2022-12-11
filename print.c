@@ -43,6 +43,13 @@ void print_node(Node node) {
 
 void print_superblock(SuperBlock sb) {
   printf("Valid disk char: %c \n", sb.valid);
+  for (int i = 0; i<5; i++) {
+    for (int j = 0; j < 8; j++) {
+      // Mask each bit in the byte and store it
+      printf("%d", sb.bitmap[i] & (1 << j) != 0);
+    }
+    printf("\n");
+  }
 }
 
 void print_disk(Disk* disk) {
