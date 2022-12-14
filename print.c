@@ -23,15 +23,6 @@ void print_pnode(PNode node) {
 }
 void print_inode(INode node) {
   printf("INode %s: %d bytes and %d blocks \n", node.name, node.bytes, node.blocks);
-  return; // TODO: update this to print out the nodes
-  for (int i = 0; i < 10; i ++) {
-    if (node.s_indirect[i] == NULL) { break; }
-    print_pnode(*node.s_indirect[i]); // maybe only print the address?
-  }
-  for (int i = 0; i < 3; i ++) {
-    if (node.d_indirect[i] == NULL) { break; }
-    print_pnode(*node.d_indirect[i]); // maybe only print the address?
-  }
 }
 
 void print_node(Node node) {
@@ -46,8 +37,8 @@ void print_superblock(SuperBlock sb) {
   printf("Valid disk char: %c \n", sb.valid);
   for (int i = 0; i<5; i++) {
     for (int j = 0; j < 8; j++) {
-      // Mask each bit in the byte and store it
-      printf("%d", sb.bitmap[i] & (1 << j) != 0);
+      // Mask each bit in the byte and print it
+      printf("%d ", !!((sb.bitmap[i] << j) & 0x80));
     }
     printf("\n");
   }

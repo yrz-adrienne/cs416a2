@@ -2,14 +2,14 @@
 #include <stdio.h>
 #include <errno.h> //apparently we have to set this every time we return an error
 #include <stdarg.h>
+#include <math.h>
 
 #define DEBUG 1
 
 static FILE* disk_file;
-static INode* curr_file;
 static Disk* loaded_disk;
-INode* open_files [50]; //index is the file descriptor, contains a pointer to the INode
-INode* open_modes [50]; //track the mode of every file
+INode* open_files [NODES]; //index is the file descriptor, contains a pointer to the INode
+INode* open_modes [NODES]; //track the mode of every file. lets add this as a field in the inode - allen 
 
 int file_count = 0; 
 
@@ -122,20 +122,10 @@ int wo_unmount(void* mem_addr) {
   return 0;
 }
 
-// populate DiskBlock with PNode, if the PNode is of type 'b' (block)
-void load_pnode(PNode* input, DiskBlock** result, int* index, int blocks) {
-  if (input->type == 'b') {
-    int local_blocks = 0;
-    while (*index < blocks && local_blocks < 33) {
-      result[*index] = input->direct[*index];
-      *index = (*index) + 1;
-      local_blocks++;
-    }
-    return;
-  } else if (input->type == 'p') {
-    return;
-  }
-  
+// return the node at the given index.
+// this can be an inode or a pnode
+Node* get_node(int index) {
+  return &loaded_disk->nodes[index];
 }
 
 // return the diskblock at the given index
@@ -143,12 +133,29 @@ DiskBlock* get_diskblock(int index) {
   return &loaded_disk->blocks[index];
 }
 
+// populate DiskBlock with PNode, if the PNode is of type 'b' (block)
+void load_pnode(PNode* input, DiskBlock** diskblocks, int* index, int blocks) {
+  if (input->type == 'b') {
+    for (int i = 0; i < 40 && index < blocks; i++) {  
+      DiskBlock* current_block = get_diskblock(input->direct[i]);
+      diskblocks[*index] = current_block;
+      index++;
+    }
+  } else {
+    for (int i = 0; i < 40 && index < blocks; i++) { 
+      PNode* current_pnode = (PNode*) get_node(input->direct[i]);
+      load_pnode(current_pnode, diskblocks, index, blocks);
+     }
+  }
+  
+}
+
 // return the blocks of an iNode
 DiskBlock** get_diskblocks(INode* input) {
   print_inode(*input);
   int blocks = input->blocks;
   int index = 0;
-  DiskBlock** result = (DiskBlock*) malloc(sizeof(DiskBlock) * blocks);
+  DiskBlock** diskblocks = (DiskBlock*) malloc(sizeof(DiskBlock) * blocks);
   while (index < blocks) {
     // direct
     if (index < INODE_DIR) { 
@@ -156,38 +163,39 @@ DiskBlock** get_diskblocks(INode* input) {
         printf("the disk block is null \n");
         return NULL;
       }
-      printf("%d \n", input->direct[index]);
-      DiskBlock* sdf;
-      print_disk_block(*get_diskblock(input->direct[index]));
-      result[index] = input->direct[index];
+      DiskBlock* current_block = get_diskblock(input->direct[index]);
+      diskblocks[index] = current_block;
       index++;
-      // if(DEBUG) printf("%s \n", input->direct[index]);
       continue;
     }
-    return result;
+
     // single indirect
-    for (int i = 0; i<INODE_IND && index < blocks; i++) {
-      // we need to load in 33 blocks per PNode
-      load_pnode(input->s_indirect[i], result, &index, blocks);
+    if (index < INODE_DIR + INODE_IND) {
+      // we need to load in 40 blocks per PNode
+      PNode* current_pnode = (PNode*) get_node(input->s_indirect[index - INODE_DIR]);
+      load_pnode(current_pnode, diskblocks, &index, blocks);
       continue;
     }
 
     // double indirect
-    for (int i = 0; i < INODE_DIND && index < blocks; i++){
-      //
-
+    if (index < INODE_DIR + INODE_IND + INODE_DIND){
+      PNode* current_pnode = (PNode*) get_node(input->s_indirect[index - INODE_DIR - INODE_DIND]);
+      load_pnode(current_pnode, diskblocks, &index, blocks);
     }
   }
-  return result;
+  return diskblocks;
 }
 
-int get_bit(int input, int index) {
-    int k = 1 << index;
-    return (input & k == 0) ? 0 : 1;
+int get_bit(int index) {
+  int byte = index / 8;
+  int bit = index % 8;
+  return !!((loaded_disk->sb.bitmap[byte] & 1 << bit));
 }
 
-int set_bit(int* input, int index) {
-  *input |= 1 << index;
+void set_bit(int index) {
+  int byte = index / 8;
+  int bit = index % 8;
+  loaded_disk->sb.bitmap[byte] |= (1<<bit);
 }
 
 int first_free_diskblock() {
@@ -230,20 +238,12 @@ int wo_open(char* file_name, int flags, ...) {
     INode* curr_node = &loaded_disk->nodes[i];
     if (strcmp(curr_node->name, file_name) == 0) {
       if(DEBUG) printf("match found with %d blocks \n", curr_node->blocks);
-      curr_file = curr_node;
-      DiskBlock** blocks = get_diskblocks(curr_file);
-      if(DEBUG){
-        printf("loaded the disk blocks \n");
-        for (int i=0; i<curr_file->blocks; i++) {
-          print_disk_block(*blocks[i]);
-        }
-      }
-      curr_file->fd = file_count; 
+      curr_node->fd = file_count; 
+      curr_node->mode = flags;
       file_count++; 
-      open_files[curr_file->fd] = curr_file;
-      open_modes[curr_file->fd] = flags; // should we check if flag is correct type?
-      return curr_file->fd; 
-      //return 0; //why were there two return 0s here??? one was above
+      open_files[curr_node->fd] = curr_node;
+      open_modes[curr_node->fd] = flags; // should we check if flag is correct type?
+      return curr_node->fd; 
     }
   }
 
@@ -260,18 +260,17 @@ int wo_open(char* file_name, int flags, ...) {
     int first_free = first_free_diskblock();
     printf("free diskblock at index %d \n", first_free);
     print_disk_block(*get_diskblock(first_free));
-    set_bit(&loaded_disk->sb.bitmap, first_free);
+    set_bit(first_free);
     allocating->direct[0] = first_free;
-    strcpy(get_diskblock(first_free), "hello"); //this is a test
+    allocating->bytes = 0; // this is so we know where to start writing in the blocks
     strcpy(allocating->name, file_name);
 
     //need to check this
-    curr_file = allocating; 
-    curr_file->fd = file_count; 
+    allocating->fd = file_count; 
+    allocating->mode = flags;
     file_count++; 
-    open_files[curr_file->fd] = curr_file;
-    open_modes[curr_file->fd] = flags; // should we check if flag is correct type?
-    return curr_file->fd; 
+    open_files[allocating->fd] = allocating;
+    return allocating->fd; 
     // return 0;
   }
 
@@ -281,32 +280,99 @@ int wo_open(char* file_name, int flags, ...) {
 //that we are reading from?? because it doesn't say that
 //so can we assume that we always read from the start?
 int wo_read( int fd,  void* buffer, int bytes){
+  INode* target = open_files[fd];
+  if (!target) { 
+    printf("target is null! \n");
+    return -1; 
+  }
   if(open_files[fd] == NULL){
     //set errno!!!
+    printf("fd is null! \n");
     return -1;
   }
   if(open_modes[fd] == WO_WRONLY){ //we can only write in this case, can't read
     //set errno!!!
+    printf("you don't have permission! \n");
     return -1;
   }
+  printf("reading the following file \n");
 
   //not sure this is right
-  DiskBlock** blocks = get_diskblocks(open_files[fd]);
+  DiskBlock** diskblocks = get_diskblocks(target);
 
+  // for testing purposes
+  print_disk_block(diskblocks[0]);
+  memcpy(buffer, diskblocks[0], bytes);
+  return 0;
+
+  // get the list of the disk blocks
+  int block_index = floor( (double) target->bytes / (double) BLOCK_QUANTA);
+  // TODO: consider the case where the most recent disk block is not full
+  for (int i = 0; i < target->bytes && i < bytes; i += BLOCK_QUANTA) {
+    printf("gettings the %dth disk block \n", block_index);
+    memcpy(buffer + i, diskblocks[block_index], BLOCK_QUANTA);
+    block_index++;
+  }
   return 0;
 }
-
-
 
 int wo_write(int fd,  void* buffer, int bytes){
   if(open_files[fd] == NULL){
     //set errno!!!
+    printf("fd is null! \n");
     return -1;
   }
   if(open_modes[fd] == WO_RDONLY){ //we can only read in this case, can't read
     //set errno!!!
+    printf("you don't have permission! \n");
     return -1;
   }
+
+  INode* target = open_files[fd];
+  if (!target) { return -1; }
+
+  // write to diskblocks in chunks of 1024
+  int blocks_needed;
+  // make sure we have enough space to write to
+  if (ceil((double) bytes / (double) BLOCK_QUANTA) > target->blocks) {
+    // we need to allocate more blocks
+    blocks_needed = ceil( (double) bytes / (double) BLOCK_QUANTA) - target->blocks; // TODO: make sure this always rounds up forreal
+    for (int i = target->blocks; i < blocks_needed; i++) {
+      int index_newblock = first_free_diskblock();
+      if (i < INODE_DIR) {
+        target->direct[i] = index_newblock;
+      } else if (i < INODE_IND) {
+        // assign the first free pointer in this pnode to be the block
+      } else {
+        // assign the first free pointer in this pnode to be the block
+      }
+    }
+  }
+
+  // get the list of the disk blocks
+  DiskBlock** diskblocks = get_diskblocks(target);
+
+  // for testnig we will write to the first diskblock
+  // only write the given amount of bytes
+  memcpy(diskblocks[0], buffer, bytes);
+  target->bytes = bytes;
+  target->blocks = blocks_needed;
+  return 0;
+
+  int block_index = ceil( (double) target->bytes / (double) BLOCK_QUANTA);
+  // TODO: consider the case where the most recent disk block is not full
+  for (int i = target->bytes; i < target->bytes + bytes; i += BLOCK_QUANTA) {
+    printf("copying bytes %d-%d to index %d \n", i, i+BLOCK_QUANTA, block_index);
+    printf("%p \n", diskblocks[block_index]);
+    memcpy(diskblocks[block_index], buffer + i, BLOCK_QUANTA);
+    block_index++;
+  }
+  // TODO: what happens if we are slightly over an increment of 1024
+
+  // update the size of the file
+  target->bytes = target->blocks + bytes;
+  target->blocks = blocks_needed;
+
   return 0; 
 }
 
@@ -319,10 +385,35 @@ int wo_close(int fd){
   return -1; 
 }
 
+void check_size() {
+  // these three should be the same
+  printf("INode: %d \n", sizeof(INode));
+  printf("PNode: %d \n", sizeof(PNode));
+  printf("Node: %d \n", sizeof(Node));
+  // This should be 0
+  printf("Size difference: %d \n", DISK_SIZE - sizeof(Disk));
+}
+
 int main(int argc, char** args) {
+  
+  // whenever you change the metadata make sure to run this
+  // check_size(); return 0;
+
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
+  printf("open result: %d \n", open_result);
+  char buffer[32];
+  strcpy(buffer, "hello, world");
+  char* read_buffer = malloc(sizeof(char) * 32);
+  printf("buffer address %p \n", read_buffer);
+  int write_result = wo_write(open_result, buffer, 32);
+  int read_result = wo_read(open_result, read_buffer, 32);
+  if (read_result >= 0) {
+    printf("read result: %s \n", read_result);
+  } else {
+    printf("buffer result: %d \n", read_result);
+  }
   // int open_result2 = wo_open("test_file1", 0, 0);
   int unmount_result = wo_unmount(disk);
 

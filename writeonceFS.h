@@ -21,12 +21,12 @@ typedef char DiskBlock[BLOCK_QUANTA];
 // generic type that we can cast from
 typedef struct Node {
   char type;
-  char* data[33];
+  int data[40];
 } Node;
 
 typedef struct PNode {
   char type;
-  void* direct[33];
+  int direct[40];
 } PNode; // 248 bytes
 
 typedef struct INode {
@@ -35,20 +35,17 @@ typedef struct INode {
   unsigned int blocks;
   char name[32];
   int direct[INODE_DIR]; // change this to index since the memory addresses will change in between mounts
-  PNode* s_indirect[INODE_IND];
-  PNode* d_indirect[INODE_DIND];
-  // DiskBlock* direct[15];
-  // PNode* s_indirect[10];
-  // PNode* d_indirect[3];
+  int s_indirect[INODE_IND];
+  int d_indirect[INODE_DIND];
   int fd; // if there is room to increase the size like this
-  // then this is the file descriptor always associated with the file
+  int mode;// then this is the file descriptor always associated with the file
 } INode; // 248 bytes
 
 typedef struct SuperBlock {
   char valid;
   char bitmap[509];
   unsigned short free_count;
-  char padding[144]; // this allows us to fit in one disk perfectly
+  char padding[4]; // this allows us to fit in one disk perfectly
 } SuperBlock;
 
 #define NODES 103
