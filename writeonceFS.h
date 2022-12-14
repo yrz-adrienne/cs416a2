@@ -3,6 +3,19 @@
 #include <string.h>
 #define DISK_SIZE 4194304 
 #define BLOCK_QUANTA 1024
+
+#define PNODE_ARR 33
+#define INODE_DIR 15
+#define INODE_IND 10
+#define INODE_DIND 3
+#define BITMAP_SIZE 509
+
+//idk if these need to be anything in particular
+#define WO_RDONLY 1
+#define WO_WRONLY 2
+#define WO_RDWR 3
+#define WO_CREATE 4
+
 typedef char DiskBlock[BLOCK_QUANTA];
 
 // generic type that we can cast from
@@ -21,9 +34,12 @@ typedef struct INode {
   unsigned int bytes;
   unsigned int blocks;
   char name[32];
-  DiskBlock* direct[15];
-  PNode* s_indirect[10];
-  PNode* d_indirect[3];
+  DiskBlock* direct[INODE_DIR];
+  PNode* s_indirect[INODE_IND];
+  PNode* d_indirect[INODE_DIND];
+  // DiskBlock* direct[15];
+  // PNode* s_indirect[10];
+  // PNode* d_indirect[3];
   int fd; // if there is room to increase the size like this
   // then this is the file descriptor always associated with the file
 } INode; // 248 bytes
@@ -47,7 +63,7 @@ typedef struct Disk {
 int wo_mount(char* file_name, void* mem_addr);
 int wo_unmount(void* mem_addr);
 
-int wo_open(char* file_name, int flags, int mode);
+int wo_open(char* file_name, int flags, ...);
 
 int wo_read(int fd, void* buff, int bytes);
 int wo_write(int fd, void* buff, int bytes);

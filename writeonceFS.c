@@ -1,6 +1,7 @@
 #include "writeonceFS.h"
 #include <stdio.h>
-#include <errno.h> //apparently we have to set this all the time so
+#include <errno.h> //apparently we have to set this every time we return an error
+#include <stdarg.h>
 
 #define DEBUG 1
 
@@ -20,8 +21,8 @@ void format_disk(char* file_name) {
   Disk* default_disk = malloc(sizeof(Disk));
   SuperBlock* default_sb = malloc(sizeof(SuperBlock));
   default_sb->valid = 't';
-  memset(default_sb->bitmap, 0, 509);
-  default_sb->free_count = 509 * 8;
+  memset(default_sb->bitmap, 0, BITMAP_SIZE);
+  default_sb->free_count = BITMAP_SIZE * 8;
 
   fwrite(default_sb, sizeof(SuperBlock), 1, fdisk);
 
@@ -118,6 +119,7 @@ int wo_unmount(void* mem_addr) {
   return 0;
 }
 
+// populate DiskBlock with PNode, if the PNode is of type 'b' (block)
 void load_pnode(PNode* input, DiskBlock** result, int* index, int blocks) {
   if (input->type == 'b') {
     int local_blocks = 0;
@@ -133,13 +135,14 @@ void load_pnode(PNode* input, DiskBlock** result, int* index, int blocks) {
   
 }
 
+// return the blocks of an iNode
 DiskBlock** get_diskblocks(INode* input) {
   int blocks = input->blocks;
   int index = 0;
   DiskBlock** result = (DiskBlock*) malloc(sizeof(DiskBlock) * blocks);
   while (index < blocks) {
     // direct
-    if (index < 10) {
+    if (index < 10) { //should this be less than 15? index < INODE_DIR
       result[index] = input->direct[index];
       index++;
       if(DEBUG) printf("%s \n", input->direct[index]);
@@ -147,15 +150,16 @@ DiskBlock** get_diskblocks(INode* input) {
     }
     return result;
     // single indirect
-    for (int i = 0; i<10 && index < blocks; i++) {
+    for (int i = 0; i<INODE_IND && index < blocks; i++) {
       // we need to load in 33 blocks per PNode
       load_pnode(input->s_indirect[i], result, &index, blocks);
       continue;
     }
 
     // double indirect
-    for (int i = 0; i < 3 && index < blocks; i++){
+    for (int i = 0; i < INODE_DIND && index < blocks; i++){
       //
+
     }
   }
   return result;
@@ -168,7 +172,7 @@ int getBit(int inputNumber, int i) {
 
 DiskBlock* first_free_diskblock() {
   if(DEBUG) printf("getting the first diskblock \n");
-  for (int i = 0; i<509; i++) {
+  for (int i = 0; i<BITMAP_SIZE; i++) {
     for (int j = 0; j < 8; j++) {
       // Mask each bit in the byte and store it
       int current_bit = loaded_disk->sb.bitmap[i] & (1 << j) != 0;
@@ -181,12 +185,22 @@ DiskBlock* first_free_diskblock() {
 }
 
 // we need to return a file descriptor
+// we need macros for all the flags probably
 // the mode part should be an optional argument
 // can use https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/va-arg-va-copy-va-end-va-start?view=msvc-170
 // in class i actually thought he said to split it into open and create - two sep functions
 // but i can't see anyone else saying that on piazza or the discord
 // and i arrived at the end of that discussion so i guess optional arguments it is
-int wo_open(char* file_name, int flags, int mode) {
+
+//int wo_open(char* file_name, int flags, int mode) {
+int wo_open(char* file_name, int flags, ...) {
+  va_list ap; 
+  va_start(ap, flags); //flags is the last known argument
+  int mode = va_arg(ap, int); // result is undefined if the third argument does not exist
+  if(mode == WO_CREATE){ 
+    // then do stuff
+  }
+
   int free_index = -1;
   for (int i=0; i<NODES; i++) {
     // keep track of the first free INode in case we don't find the file
@@ -212,7 +226,7 @@ int wo_open(char* file_name, int flags, int mode) {
       file_count++; 
       open_files[curr_file->fd] = curr_file;
       return curr_file->fd; 
-      //return 0; //why were there two return 0s here??? one above
+      //return 0; //why were there two return 0s here??? one was above
     }
   }
 
@@ -229,7 +243,7 @@ int wo_open(char* file_name, int flags, int mode) {
   return 0;
 }
 
-//are we supposed to somehow updated the position in the file
+//are we supposed to somehow update the position in the file
 //that we are reading from?? because it doesn't say that
 //so can we assume that we always read from the start?
 int wo_read( int fd,  void* buffer, int bytes){
