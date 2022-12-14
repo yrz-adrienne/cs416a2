@@ -238,6 +238,8 @@ int wo_read( int fd,  void* buffer, int bytes){
     return -1;
   }
 
+  //not sure this is right
+  DiskBlock** blocks = get_diskblocks(open_files[fd]);
 
   return 0;
 }
