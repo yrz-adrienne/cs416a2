@@ -1,15 +1,15 @@
 #include "writeonceFS.h"
 
 void print_disk_block(DiskBlock block) {
-  if (block == NULL || block == 0) {
+  if (block == NULL) {
+    printf("undefined block \n");
     return;
   }
-  char* cp = block;
-  for ( ; *cp != '\0'; ++cp )
-  {
-    printf("%02x", *cp);
+  if (block == 0) {
+    printf("empty disk block \n");
   }
-  printf("\n");
+  printf("%s \n", block);
+  printf("done printing the block \n");
 }
 
 void print_pnode(PNode node) {
@@ -23,6 +23,7 @@ void print_pnode(PNode node) {
 }
 void print_inode(INode node) {
   printf("INode %s: %d bytes and %d blocks \n", node.name, node.bytes, node.blocks);
+  return; // TODO: update this to print out the nodes
   for (int i = 0; i < 10; i ++) {
     if (node.s_indirect[i] == NULL) { break; }
     print_pnode(*node.s_indirect[i]); // maybe only print the address?

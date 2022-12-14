@@ -48,6 +48,7 @@ void format_disk(char* file_name) {
 
 //Read in diskfile
 int wo_mount(char* file_name, void* mem_addr) {
+  printf("mounting at %p \n", mem_addr);
   disk_file = fopen(file_name, "r+"); // open up the the file for reading
   if (disk_file == NULL) {
     // fclose(disk_file); //can not close a null disk file
@@ -137,17 +138,30 @@ void load_pnode(PNode* input, DiskBlock** result, int* index, int blocks) {
   
 }
 
+// return the diskblock at the given index
+DiskBlock* get_diskblock(int index) {
+  return &loaded_disk->blocks[index];
+}
+
 // return the blocks of an iNode
 DiskBlock** get_diskblocks(INode* input) {
+  print_inode(*input);
   int blocks = input->blocks;
   int index = 0;
   DiskBlock** result = (DiskBlock*) malloc(sizeof(DiskBlock) * blocks);
   while (index < blocks) {
     // direct
-    if (index < 10) { //should this be less than 15? index < INODE_DIR
+    if (index < INODE_DIR) { 
+      if (!input || !input->direct || input->direct[index] != NULL) {
+        printf("the disk block is null \n");
+        return NULL;
+      }
+      printf("%d \n", input->direct[index]);
+      DiskBlock* sdf;
+      print_disk_block(*get_diskblock(input->direct[index]));
       result[index] = input->direct[index];
       index++;
-      if(DEBUG) printf("%s \n", input->direct[index]);
+      // if(DEBUG) printf("%s \n", input->direct[index]);
       continue;
     }
     return result;
@@ -167,23 +181,29 @@ DiskBlock** get_diskblocks(INode* input) {
   return result;
 }
 
-int getBit(int inputNumber, int i) {
-    int k = 1 << i;
-    return (inputNumber & k == 0) ? 0 : 1;
+int get_bit(int input, int index) {
+    int k = 1 << index;
+    return (input & k == 0) ? 0 : 1;
 }
 
-DiskBlock* first_free_diskblock() {
+int set_bit(int* input, int index) {
+  *input |= 1 << index;
+}
+
+int first_free_diskblock() {
   if(DEBUG) printf("getting the first diskblock \n");
   for (int i = 0; i<BITMAP_SIZE; i++) {
     for (int j = 0; j < 8; j++) {
       // Mask each bit in the byte and store it
       int current_bit = loaded_disk->sb.bitmap[i] & (1 << j) != 0;
+      int current_index = i*j + j;
       if (current_bit == 0) {
         if(DEBUG) printf("found at %p \n", &loaded_disk->blocks[i]);
-        return &loaded_disk->blocks[i];
+        return current_index;
       }
     }
   }
+  return -1; // this is if we cannot find a free diskblock
 }
 
 // we need to return a file descriptor
@@ -215,7 +235,7 @@ int wo_open(char* file_name, int flags, ...) {
       if(DEBUG){
         printf("loaded the disk blocks \n");
         for (int i=0; i<curr_file->blocks; i++) {
-          print_disk_block(blocks[i]);
+          print_disk_block(*blocks[i]);
         }
       }
       curr_file->fd = file_count; 
@@ -237,9 +257,12 @@ int wo_open(char* file_name, int flags, ...) {
     if(DEBUG) printf("Creating file at address %p and index %d \n", allocating, free_index);
     allocating->type = 'i';
     allocating->blocks = 1;
-    DiskBlock* first_free = first_free_diskblock();
+    int first_free = first_free_diskblock();
+    printf("free diskblock at index %d \n", first_free);
+    print_disk_block(*get_diskblock(first_free));
+    set_bit(&loaded_disk->sb.bitmap, first_free);
     allocating->direct[0] = first_free;
-    strcpy(allocating->direct[0], "hello"); //this is a test
+    strcpy(get_diskblock(first_free), "hello"); //this is a test
     strcpy(allocating->name, file_name);
 
     //need to check this
@@ -299,8 +322,7 @@ int wo_close(int fd){
 int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
-  int open_result = wo_open("test_file1", 0, 0);
-  print_superblock(disk->sb);
+  int open_result = wo_open("test_file1", 0,  WO_CREATE);
   // int open_result2 = wo_open("test_file1", 0, 0);
   int unmount_result = wo_unmount(disk);
 

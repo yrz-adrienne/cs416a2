@@ -34,7 +34,7 @@ typedef struct INode {
   unsigned int bytes;
   unsigned int blocks;
   char name[32];
-  DiskBlock* direct[INODE_DIR];
+  int direct[INODE_DIR]; // change this to index since the memory addresses will change in between mounts
   PNode* s_indirect[INODE_IND];
   PNode* d_indirect[INODE_DIND];
   // DiskBlock* direct[15];
