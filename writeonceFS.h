@@ -24,6 +24,8 @@ typedef struct INode {
   DiskBlock* direct[15];
   PNode* s_indirect[10];
   PNode* d_indirect[3];
+  int fd; // if there is room to increase the size like this
+  // this is the file descriptor always associated with the file
 } INode; // 248 bytes
 
 typedef struct SuperBlock {
