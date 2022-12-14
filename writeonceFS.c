@@ -9,6 +9,8 @@ static FILE* disk_file;
 static INode* curr_file;
 static Disk* loaded_disk;
 INode* open_files [50]; //index is the file descriptor, contains a pointer to the INode
+INode* open_modes [50]; //track the mode of every file
+
 int file_count = 0; 
 
 void create_disk(char* file_name) {
@@ -194,12 +196,6 @@ DiskBlock* first_free_diskblock() {
 
 //int wo_open(char* file_name, int flags, int mode) {
 int wo_open(char* file_name, int flags, ...) {
-  va_list ap; 
-  va_start(ap, flags); //flags is the last known argument
-  int mode = va_arg(ap, int); // result is undefined if the third argument does not exist
-  if(mode == WO_CREATE){ 
-    // then do stuff
-  }
 
   int free_index = -1;
   for (int i=0; i<NODES; i++) {
@@ -225,22 +221,37 @@ int wo_open(char* file_name, int flags, ...) {
       curr_file->fd = file_count; 
       file_count++; 
       open_files[curr_file->fd] = curr_file;
+      open_modes[curr_file->fd] = flags; // should we check if flag is correct type?
       return curr_file->fd; 
       //return 0; //why were there two return 0s here??? one was above
     }
   }
 
-  // creating file
-  INode* allocating = (Node*) &loaded_disk->nodes[free_index];
-  if(DEBUG) printf("Creating file at address %p and index %d \n", allocating, free_index);
-  allocating->type = 'i';
-  allocating->blocks = 1;
-  DiskBlock* first_free = first_free_diskblock();
-  allocating->direct[0] = first_free;
-  strcpy(allocating->direct[0], "hello");
-  strcpy(allocating->name, file_name);
+  va_list ap; 
+  va_start(ap, flags); //flags is the last known argument
+  int mode = va_arg(ap, int); // result is undefined if the third argument does not exist
+  if(mode == WO_CREATE){ 
+    // then do stuff
+    // creating file
+    INode* allocating = (Node*) &loaded_disk->nodes[free_index];
+    if(DEBUG) printf("Creating file at address %p and index %d \n", allocating, free_index);
+    allocating->type = 'i';
+    allocating->blocks = 1;
+    DiskBlock* first_free = first_free_diskblock();
+    allocating->direct[0] = first_free;
+    strcpy(allocating->direct[0], "hello"); //this is a test
+    strcpy(allocating->name, file_name);
 
-  return 0;
+    //need to check this
+    curr_file = allocating; 
+    curr_file->fd = file_count; 
+    file_count++; 
+    open_files[curr_file->fd] = curr_file;
+    open_modes[curr_file->fd] = flags; // should we check if flag is correct type?
+    return curr_file->fd; 
+    // return 0;
+  }
+
 }
 
 //are we supposed to somehow update the position in the file
@@ -248,6 +259,10 @@ int wo_open(char* file_name, int flags, ...) {
 //so can we assume that we always read from the start?
 int wo_read( int fd,  void* buffer, int bytes){
   if(open_files[fd] == NULL){
+    //set errno!!!
+    return -1;
+  }
+  if(open_modes[fd] == WO_WRONLY){ //we can only write in this case, can't read
     //set errno!!!
     return -1;
   }
@@ -261,6 +276,14 @@ int wo_read( int fd,  void* buffer, int bytes){
 
 
 int wo_write(int fd,  void* buffer, int bytes){
+  if(open_files[fd] == NULL){
+    //set errno!!!
+    return -1;
+  }
+  if(open_modes[fd] == WO_RDONLY){ //we can only read in this case, can't read
+    //set errno!!!
+    return -1;
+  }
   return 0; 
 }
 
