@@ -4,11 +4,13 @@
 #define DISK_SIZE 4194304 
 #define BLOCK_QUANTA 1024
 
-#define PNODE_ARR 33
+#define NODE_DATA 40
 #define INODE_DIR 15
 #define INODE_IND 10
 #define INODE_DIND 3
 #define BITMAP_SIZE 509
+
+
 
 //idk if these need to be anything in particular
 #define WO_RDONLY 1
@@ -37,8 +39,8 @@ typedef struct INode {
   int direct[INODE_DIR]; // change this to index since the memory addresses will change in between mounts
   int s_indirect[INODE_IND];
   int d_indirect[INODE_DIND];
-  int fd; // if there is room to increase the size like this
-  int mode;// then this is the file descriptor always associated with the file
+  int fd; //the file descriptor always associated with the file
+  int mode; //mode that the file is opened in, -1 if not opened 
 } INode; // 248 bytes
 
 typedef struct SuperBlock {
