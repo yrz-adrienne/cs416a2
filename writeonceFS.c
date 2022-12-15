@@ -157,6 +157,7 @@ DiskBlock** get_diskblocks(INode* input) {
   int index = 0;
   DiskBlock** diskblocks = (DiskBlock*) malloc(sizeof(DiskBlock) * blocks);
   while (index < blocks) {
+    
     // direct
     if (index < INODE_DIR) { 
       DiskBlock* current_block = get_diskblock(input->direct[index]);
@@ -173,8 +174,9 @@ DiskBlock** get_diskblocks(INode* input) {
       int pnode_index = floor(index / 40);
       PNode* target_node = (PNode*) get_node(input->s_indirect[pnode_index]);
       int pnode_pointer_index = index % 40;
+      printf("%d -> pointer_index: %d \n", index, pnode_pointer_index);
       DiskBlock* current_block = get_diskblock(target_node->direct[pnode_pointer_index]);
-      printf("%d -> %d \n", index, target_node->direct[pnode_pointer_index]);
+      printf("%d -> block_index: %d \n", index, target_node->direct[pnode_pointer_index]);
       diskblocks[index] = current_block;
       index++;
       continue;
@@ -192,6 +194,7 @@ DiskBlock** get_diskblocks(INode* input) {
       diskblocks[index] = current_block;
       index++;
       printf("%d -> %d \n", index, innner_node->direct[pnode_pointer_index]);
+      continue;
     }
   }
   return diskblocks;
@@ -366,8 +369,15 @@ int wo_write(int fd,  void* buffer, int bytes){
         // assign the first free pointer in this pnode to be the block
         int block_index = allocated_blocks - INODE_DIR;
         int pnode_index = floor(block_index / 40);
+        // target->s_indirect[pnode_index] == -1 // then this is not defined yet
+        // 1. find the first free node block
+        // 2. format that to be of type 'i'
+        // 3. update target->s_indirect[pnode_index] = index of that new block
+        // 4. target_node->direct[inner_index] = first free diskblock
+        printf("sind index %d \n", pnode_index);
         PNode* target_node = (PNode*) get_node(target->s_indirect[pnode_index]);
-        int pnode_pointer_index = block_index % 40;
+        int pnode_pointer_index = block_index % 40; // 5
+        printf("block index %d \n", pnode_pointer_index);
         target_node->direct[pnode_pointer_index] = index_newblock;
         printf("%d -> %d \n", allocated_blocks, index_newblock);
       } else {
@@ -390,12 +400,13 @@ int wo_write(int fd,  void* buffer, int bytes){
   int block_index = floor( (double) (target->bytes + bytes_written) / BLOCK_QUANTA);
   // TODO: consider the case where the most recent disk block is not full
   while (bytes_written < bytes) {
-    int block_offset = bytes_written == 0 ? target->bytes % BLOCK_QUANTA : 0;
+    size_t block_offset = bytes_written == 0 ? (size_t) target->bytes % BLOCK_QUANTA : 0;
     int bytes_to_write = bytes - bytes_written;
     int write_size = bytes_to_write > BLOCK_QUANTA ? BLOCK_QUANTA : bytes_to_write;
     printf("offset: %d\t\tbytes to write: %d\t\twrite size: %d\t\tblock index: %d\t\tmemory location: %p \n", block_offset, bytes_to_write, write_size, block_index, diskblocks[block_index]);
-    printf("%x + offset %x -> location is %x \n", diskblocks[block_index], block_offset,  (diskblocks + block_index * sizeof(DiskBlock) + block_offset)); // TODO: make this offset correct
-    memcpy((diskblocks[block_index] + block_offset), buffer + bytes_written, write_size);
+    // diskblocks[block_index] = diskblocks + sizeof(DiskBlocks) * block_index
+    printf("%p + %d = %p \n", diskblocks[block_index], block_offset,  ((char*) diskblocks[block_index]) + block_offset); // TODO: make this offset correct
+    memcpy(((char*) diskblocks[block_index]) + block_offset, buffer + bytes_written, write_size);
 
     bytes_written += write_size;
     block_index ++;
@@ -434,8 +445,9 @@ int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
-  char message[] = "simple message";
-  int message_length = sizeof(message) + 1;
+  char message[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.";
+  // char message[] = "This is a test.";
+  int message_length = sizeof(message);
   char* read_buffer = malloc(message_length*2 + 1);
   printf("buffer address %p \n", read_buffer);
   int write_result = wo_write(open_result, message, message_length); // TODO consecutive writes are not to the same part of memory
