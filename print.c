@@ -13,14 +13,15 @@ void print_disk_block(DiskBlock block) {
 }
 
 void print_pnode(PNode node) {
-  for (int i=0; i<33; i++) {
+  for (int i=0; i<40; i++) {
     if (node.type == 'b') {
-      print_disk_block(*(DiskBlock*) &node.direct[i]);
+      printf("Index: %d \n", node.direct[i]);
     } else {
       print_pnode(*(PNode*) &node.direct[i]);
     }
   }
 }
+
 void print_inode(INode node) {
   printf("INode %s: %d bytes and %d blocks \n", node.name, node.bytes, node.blocks);
 }

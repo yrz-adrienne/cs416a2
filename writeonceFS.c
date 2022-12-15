@@ -159,10 +159,6 @@ DiskBlock** get_diskblocks(INode* input) {
   while (index < blocks) {
     // direct
     if (index < INODE_DIR) { 
-      if (!input || !input->direct || input->direct[index] != NULL) {
-        printf("the disk block is null \n");
-        return NULL;
-      }
       DiskBlock* current_block = get_diskblock(input->direct[index]);
       diskblocks[index] = current_block;
       index++;
@@ -170,17 +166,27 @@ DiskBlock** get_diskblocks(INode* input) {
     }
 
     // single indirect
-    if (index < INODE_DIR + INODE_IND) {
+    if (index < INODE_DIR + INODE_IND * 40) {
       // we need to load in 40 blocks per PNode
-      PNode* current_pnode = (PNode*) get_node(input->s_indirect[index - INODE_DIR]);
-      load_pnode(current_pnode, diskblocks, &index, blocks);
+      int block_index = index - INODE_DIR;
+      int pnode_index = floor(index / 40);
+      PNode* target_node = (PNode*) get_node(input->s_indirect[pnode_index]);
+      int pnode_pointer_index = index % 40;
+      DiskBlock* current_block = get_diskblock(target_node->direct[pnode_pointer_index]);
+      diskblocks[index] = current_block;
+      index++;
       continue;
     }
 
     // double indirect
-    if (index < INODE_DIR + INODE_IND + INODE_DIND){
-      PNode* current_pnode = (PNode*) get_node(input->s_indirect[index - INODE_DIR - INODE_DIND]);
-      load_pnode(current_pnode, diskblocks, &index, blocks);
+    if (index < INODE_DIR + INODE_IND * 40 + INODE_DIND * 40 * 40){
+      int block_index = index - INODE_DIR - INODE_DIR * 40;
+      int outer_pnode_index = floor(block_index / 1600);
+      int inner_pnode_index = floor((block_index - outer_pnode_index*1600) / 40);
+      int pnode_pointer_index = inner_pnode_index % 40;
+      PNode* outer_node = (PNode*) get_node(input->d_indirect[outer_pnode_index]);
+      PNode* innner_node = (PNode*) get_node(outer_node->direct[inner_pnode_index]);
+      DiskBlock* current_block = get_diskblock(innner_node->direct[pnode_pointer_index]);
     }
   }
   return diskblocks;
@@ -200,18 +206,23 @@ void set_bit(int index) {
 
 int first_free_diskblock() {
   if(DEBUG) printf("getting the first diskblock \n");
-  for (int i = 0; i<BITMAP_SIZE; i++) {
-    for (int j = 0; j < 8; j++) {
-      // Mask each bit in the byte and store it
-      int current_bit = loaded_disk->sb.bitmap[i] & (1 << j) != 0;
-      int current_index = i*j + j;
-      if (current_bit == 0) {
-        if(DEBUG) printf("found at %p \n", &loaded_disk->blocks[i]);
-        return current_index;
-      }
+  for (int i = 0; i<BITMAP_SIZE*8; i++) {
+    if (!get_bit(i)) {
+      return i;
     }
   }
   return -1; // this is if we cannot find a free diskblock
+}
+
+void print_disk_indices(INode* node) {
+  for (int i=0;i < INODE_DIR; i++) {
+    printf("index: %d \n", node->direct[i]);
+  }
+  for (int i=0;i < 40; i++) {
+    print_pnode(*(PNode*) get_node(node->s_indirect[i]));
+  } else {
+
+  }
 }
 
 // we need to return a file descriptor
@@ -237,7 +248,7 @@ int wo_open(char* file_name, int flags, ...) {
     if (loaded_disk->nodes[i].type != 'i') { continue; }
     INode* curr_node = &loaded_disk->nodes[i];
     if (strcmp(curr_node->name, file_name) == 0) {
-      if(DEBUG) printf("match found with %d blocks \n", curr_node->blocks);
+      if(DEBUG) print_inode(*curr_node);
       curr_node->fd = file_count; 
       curr_node->mode = flags;
       file_count++; 
@@ -297,23 +308,26 @@ int wo_read( int fd,  void* buffer, int bytes){
   }
   printf("reading the following file \n");
 
+  for (int i=0; i<target->blocks; i++) {
+    printf("index: %d \n", target->direct[i]);
+  }
+
   //not sure this is right
   DiskBlock** diskblocks = get_diskblocks(target);
 
-  // for testing purposes
-  print_disk_block(diskblocks[0]);
-  memcpy(buffer, diskblocks[0], bytes);
-  return 0;
-
-  // get the list of the disk blocks
-  int block_index = floor( (double) target->bytes / (double) BLOCK_QUANTA);
+  int bytes_read = 0;
+  int block_index = 0;
   // TODO: consider the case where the most recent disk block is not full
-  for (int i = 0; i < target->bytes && i < bytes; i += BLOCK_QUANTA) {
-    printf("gettings the %dth disk block \n", block_index);
-    memcpy(buffer + i, diskblocks[block_index], BLOCK_QUANTA);
-    block_index++;
+  printf("starting at block %d \n", block_index);
+  while (bytes_read < bytes) {
+    int bytes_to_read = bytes - bytes_read;
+    int read_size = bytes_to_read > BLOCK_QUANTA ? BLOCK_QUANTA : bytes_to_read;
+    memcpy(buffer + bytes_read, diskblocks[block_index], read_size);
+
+    bytes_read += read_size;
+    block_index ++;
   }
-  return 0;
+  printf("finished reading the file \n");
 }
 
 int wo_write(int fd,  void* buffer, int bytes){
@@ -332,46 +346,63 @@ int wo_write(int fd,  void* buffer, int bytes){
   if (!target) { return -1; }
 
   // write to diskblocks in chunks of 1024
-  int blocks_needed;
+  double total_bytes = (double) bytes + (double) target->bytes;
+  int blocks_needed = ceil( total_bytes / (double) BLOCK_QUANTA);
+  printf("\nwe need %d blocks \n\n", blocks_needed);
   // make sure we have enough space to write to
-  if (ceil((double) bytes / (double) BLOCK_QUANTA) > target->blocks) {
+  if (blocks_needed > target->blocks) {
     // we need to allocate more blocks
-    blocks_needed = ceil( (double) bytes / (double) BLOCK_QUANTA) - target->blocks; // TODO: make sure this always rounds up forreal
-    for (int i = target->blocks; i < blocks_needed; i++) {
+    int s_indirect_index = 0;
+    int d_indirect_index = 0;
+    int allocated_blocks = target->blocks;
+    while (allocated_blocks < blocks_needed) {
       int index_newblock = first_free_diskblock();
-      if (i < INODE_DIR) {
-        target->direct[i] = index_newblock;
-      } else if (i < INODE_IND) {
+      printf("allocating diskblock: %d\n", index_newblock);
+      set_bit(index_newblock);
+      if (allocated_blocks < INODE_DIR) {
+        target->direct[allocated_blocks] = index_newblock;
+      } else if (allocated_blocks < INODE_DIR + INODE_IND * 40) {
         // assign the first free pointer in this pnode to be the block
+        int block_index = allocated_blocks - INODE_DIR;
+        int pnode_index = floor(block_index / 40);
+        PNode* target_node = (PNode*) get_node(target->s_indirect[pnode_index]);
+        int pnode_pointer_index = allocated_blocks % 40;
+        target_node->direct[pnode_pointer_index] = index_newblock;
       } else {
         // assign the first free pointer in this pnode to be the block
       }
+
+      allocated_blocks++;
     }
+    target->blocks = blocks_needed;
   }
+  printf("done making the blocks \n");
+
+
 
   // get the list of the disk blocks
   DiskBlock** diskblocks = get_diskblocks(target);
 
   // for testnig we will write to the first diskblock
   // only write the given amount of bytes
-  memcpy(diskblocks[0], buffer, bytes);
-  target->bytes = bytes;
-  target->blocks = blocks_needed;
-  return 0;
 
-  int block_index = ceil( (double) target->bytes / (double) BLOCK_QUANTA);
+  int bytes_written = 0;
+  int block_index = floor( (double) (target->bytes + bytes_written) / BLOCK_QUANTA);
   // TODO: consider the case where the most recent disk block is not full
-  for (int i = target->bytes; i < target->bytes + bytes; i += BLOCK_QUANTA) {
-    printf("copying bytes %d-%d to index %d \n", i, i+BLOCK_QUANTA, block_index);
-    printf("%p \n", diskblocks[block_index]);
-    memcpy(diskblocks[block_index], buffer + i, BLOCK_QUANTA);
-    block_index++;
+  while (bytes_written < bytes) {
+    int block_offset = bytes_written == 0 ? target->bytes : 0;
+    int bytes_to_write = bytes - bytes_written;
+    int write_size = bytes_to_write > BLOCK_QUANTA ? BLOCK_QUANTA : bytes_to_write;
+    printf("offset: %d\t\tbytes to write: %d\t\twrite size: %d\t\tblock index: %d\t\tmemory location: %p \n", block_offset, bytes_to_write, write_size, block_index, diskblocks[block_index]);
+    memcpy(diskblocks[block_index] + block_offset, buffer + bytes_written, write_size);
+
+    bytes_written += write_size;
+    block_index ++;
   }
   // TODO: what happens if we are slightly over an increment of 1024
 
   // update the size of the file
-  target->bytes = target->blocks + bytes;
-  target->blocks = blocks_needed;
+  target->bytes += bytes;
 
   return 0; 
 }
@@ -402,19 +433,19 @@ int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
-  printf("open result: %d \n", open_result);
-  char buffer[32];
-  strcpy(buffer, "hello, world");
-  char* read_buffer = malloc(sizeof(char) * 32);
+  char message[] = "Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein. Ich bin der Meinung, dass wir uns auf die wichtigen Dinge im Leben konzentrieren sollten, anstatt uns mit unwichtigen Details aufzuhalten. Wir sollten versuchen, jeden Tag das Beste aus uns herauszuholen und uns nicht von unseren Ängsten oder Zweifeln davon abhalten lassen, unser Potenzial voll auszuschöpfen. Wir sollten uns gegenseitig unterstützen und uns nicht gegenseitig herunterziehen, sondern immer darauf bedacht sein, das Gute in den Menschen um uns herum zu sehen und zu fördern. Nur so können wir wirklich glücklich und zufrieden sein.";
+  int message_length = sizeof(message) + 1;
+  char* read_buffer = malloc(message_length + 1);
   printf("buffer address %p \n", read_buffer);
-  int write_result = wo_write(open_result, buffer, 32);
-  int read_result = wo_read(open_result, read_buffer, 32);
+  int write_result = wo_write(open_result, message, message_length);
+  int read_result = wo_read(open_result, read_buffer, message_length);
+  
   if (read_result >= 0) {
-    printf("read result: %s \n", read_result);
+    printf("read result: %s \n", read_buffer);
   } else {
     printf("buffer result: %d \n", read_result);
   }
-  // int open_result2 = wo_open("test_file1", 0, 0);
+
   int unmount_result = wo_unmount(disk);
 
   return 0;
