@@ -47,10 +47,10 @@ typedef struct SuperBlock {
   char valid;
   char bitmap[509];
   unsigned short free_count;
-  char padding[4]; // this allows us to fit in one disk perfectly
+  char padding[488]; // this allows us to fit in one disk perfectly
 } SuperBlock;
 
-#define NODES 103
+#define NODES 406
 #define BLOCKS (DISK_SIZE-sizeof(SuperBlock)-(sizeof(Node)*NODES))/BLOCK_QUANTA
 
 typedef struct Disk {

@@ -137,13 +137,13 @@ DiskBlock* get_diskblock(int index) {
 // populate diskblocks array with blocks 
 void load_pnode(PNode* input, DiskBlock** diskblocks, int* index, int blocks) {
   if (input->type == 'b') {
-    for (int i = 0; i < 40 && index < blocks; i++) {  
+    for (int i = 0; i < NODE_DATA && index < blocks; i++) {  
       DiskBlock* current_block = get_diskblock(input->direct[i]);
       diskblocks[*index] = current_block;
       index++;
     }
   } else {
-    for (int i = 0; i < 40 && index < blocks; i++) { 
+    for (int i = 0; i < NODE_DATA && index < blocks; i++) { 
       PNode* current_pnode = (PNode*) get_node(input->direct[i]);
       load_pnode(current_pnode, diskblocks, index, blocks);
      }
@@ -169,13 +169,13 @@ DiskBlock** get_diskblocks(INode* input) {
     }
 
     // single indirect
-    if (index >= INODE_DIR && index < INODE_DIR + INODE_IND * 40) {
+    if (index >= INODE_DIR && index < INODE_DIR + INODE_IND * NODE_DATA) {
       // we need to load in 40 blocks per PNode
       int block_index = index - INODE_DIR;
-      int pnode_index = floor(index / 40);
+      int pnode_index = floor(index / NODE_DATA);
       if (input->s_indirect[pnode_index] == -1) { break; }
       PNode* target_node = (PNode*) get_node(input->s_indirect[pnode_index]);
-      int pnode_pointer_index = block_index % 40;
+      int pnode_pointer_index = block_index % NODE_DATA;
       if(DEBUG) printf("%d -> s_indirect: %d \n", index, pnode_index);
       DiskBlock* current_block = get_diskblock(target_node->direct[pnode_pointer_index]);
       if(DEBUG) printf("%d -> direct: %d \n", index, pnode_pointer_index);
@@ -186,17 +186,19 @@ DiskBlock** get_diskblocks(INode* input) {
     }
 
     // double indirect
-    if (index >= INODE_DIR + INODE_IND * 40 && index < INODE_DIR + INODE_IND * 40 + INODE_DIND * 40 * 40){
-      int block_index = index - INODE_DIR - INODE_DIR * 40;
-      int outer_pnode_index = floor(block_index / 1600);
-      int inner_pnode_index = floor((block_index - outer_pnode_index*1600) / 40);
-      int pnode_pointer_index = inner_pnode_index % 40;
-      PNode* outer_node = (PNode*) get_node(input->d_indirect[outer_pnode_index]);
-      PNode* innner_node = (PNode*) get_node(outer_node->direct[inner_pnode_index]);
-      DiskBlock* current_block = get_diskblock(innner_node->direct[pnode_pointer_index]);
-      diskblocks[index] = current_block;
+    if (index >= INODE_DIR + INODE_IND * NODE_DATA && index < INODE_DIR + INODE_IND * NODE_DATA + INODE_DIND * NODE_DATA * NODE_DATA){
+      
+      int block_index = index - INODE_DIR - INODE_IND*NODE_DATA;
+      int dpnode_index = floor(block_index / (NODE_DATA * NODE_DATA));
+      
+      PNode* target_ind = (PNode*) get_node(input->d_indirect[dpnode_index]); 
+      int pnode_index = floor((block_index - NODE_DATA*NODE_DATA*dpnode_index)/NODE_DATA); 
+
+      PNode* target_node = (PNode*) get_node(target_ind->direct[pnode_index]);
+      int pnode_pointer_index = block_index % (NODE_DATA * NODE_DATA) % NODE_DATA; // 5
+      diskblocks[index] = get_diskblock(target_node->direct[pnode_pointer_index]); 
       index++;
-      if(DEBUG) printf("%d -> %d \n", index, innner_node->direct[pnode_pointer_index]);
+      if(DEBUG) printf("%d -> %d \n", index, target_node->direct[pnode_pointer_index]);
       continue;
     }
   }
@@ -256,7 +258,7 @@ void print_disk_indices(INode* node) {
   for (int i=0;i < INODE_DIR; i++) {
     printf("index: %d \n", node->direct[i]);
   }
-  for (int i=0;i < 40; i++) {
+  for (int i=0;i < NODE_DATA; i++) {
     print_pnode(*(PNode*) get_node(node->s_indirect[i]));
   } 
 }
@@ -275,6 +277,7 @@ int wo_open(char* file_name, int flags, ...) {
   int free_index = -1;
   for (int i=0; i<NODES; i++) {
     // keep track of the first free INode in case we don't find the file
+    printf("node #: %d\n", i); 
     if (free_index == -1 && loaded_disk->nodes[i].type == 'u') { 
       free_index = i;
       continue;
@@ -365,9 +368,9 @@ int wo_read( int fd,  void* buffer, int bytes){
   if(DEBUG) printf("finished reading the file \n");
 }
 
-// double ceil(double input){
-//   return (int)input + 1; 
-// }
+double ceil(double input){
+  return (int)input + 1; 
+}
 
 
 int wo_write(int fd,  void* buffer, int bytes){
@@ -405,7 +408,7 @@ int wo_write(int fd,  void* buffer, int bytes){
       if(DEBUG) printf("allocating diskblock: %d\n", index_newblock);
       set_bit(index_newblock);
       if (allocated_blocks < INODE_DIR) {
-        printf("%d -> %d \n", allocated_blocks, index_newblock);
+        //printf("%d -> %d \n", allocated_blocks, index_newblock);
         target->direct[allocated_blocks] = index_newblock;
       } else if (allocated_blocks >= INODE_DIR && allocated_blocks < INODE_DIR + INODE_IND * NODE_DATA) {
         // TODO: correctly assign these indices
@@ -429,7 +432,7 @@ int wo_write(int fd,  void* buffer, int bytes){
         if(DEBUG) printf("%d -> %d \n", allocated_blocks, index_newblock);
         if(DEBUG) printf("sind index %d \n", pnode_index);
         PNode* target_node = (PNode*) get_node(target->s_indirect[pnode_index]);
-        int pnode_pointer_index = block_index % 40; // 5
+        int pnode_pointer_index = block_index % NODE_DATA; // 5
         if(DEBUG) printf("block index %d \n", pnode_pointer_index);
         target_node->direct[pnode_pointer_index] = index_newblock;
         
@@ -441,27 +444,32 @@ int wo_write(int fd,  void* buffer, int bytes){
         if(target->d_indirect[dpnode_index] == -1){
           int new_ind = first_free_node(); 
           PNode* new = (PNode*)(&loaded_disk->nodes[new_ind]); 
+          //printf("about to change the var\n"); 
           init_pnode(new);
           target->d_indirect[dpnode_index] = new_ind;  
           new->type = 'd'; 
         }
-
+        // printf("dp index: %d\n", target->d_indirect[dpnode_index]); 
         PNode* target_ind = (PNode*) get_node(target->d_indirect[dpnode_index]); 
         int pnode_index = floor((block_index - NODE_DATA*NODE_DATA*dpnode_index)/NODE_DATA); 
 
         if(target_ind->direct[pnode_index] == -1){
           int new_ind = first_free_node(); 
           PNode* new = (PNode*)(&loaded_disk->nodes[new_ind]); 
-          target->d_indirect[dpnode_index] = new_ind;  
+          target_ind->direct[pnode_index] = new_ind; 
           new->type = 'p'; 
         }
-        
+
         if(DEBUG) printf("%d -> %d \n", allocated_blocks, index_newblock);
         if(DEBUG) printf("dind index %d \n", dpnode_index);
         if(DEBUG) printf("sind index %d \n", pnode_index);
+        if(DEBUG) printf("target ind -> dir[pnode_index] %d \n", target_ind->direct[pnode_index]); 
+        if(DEBUG) printf("target ind address: %p\n", target_ind); 
         PNode* target_node = (PNode*) get_node(target_ind->direct[pnode_index]);
-        int pnode_pointer_index = block_index % 40; // 5
+        int pnode_pointer_index = block_index % (NODE_DATA * NODE_DATA) % NODE_DATA; // 5
         if(DEBUG) printf("block index %d \n", pnode_pointer_index);
+        if(DEBUG) printf("pnode pointer index: %d, newblock: %d\n", pnode_pointer_index, index_newblock); 
+        if(DEBUG) printf("disk: %p, target:%p, target node: %p\n", loaded_disk, &target_node->direct[pnode_pointer_index], target_node); 
         target_node->direct[pnode_pointer_index] = index_newblock;
         
         // assign the first free pointer in this pnode to be the block
@@ -485,9 +493,9 @@ int wo_write(int fd,  void* buffer, int bytes){
     size_t block_offset = bytes_written == 0 ? (size_t) target->bytes % BLOCK_QUANTA : 0;
     int bytes_to_write = bytes - bytes_written;
     int write_size = bytes_to_write > BLOCK_QUANTA ? BLOCK_QUANTA - block_offset : bytes_to_write - block_offset;
-    if(DEBUG) printf("offset: %d\t\tbytes to write: %d\t\twrite size: %d\t\tblock index: %d\t\tmemory location: %p \n", block_offset, bytes_to_write, write_size, block_index, diskblocks[block_index]);
+    if(1) printf("offset: %d\t\tbytes to write: %d\t\twrite size: %d\t\tblock index: %d\t\tmemory location: %p \n", block_offset, bytes_to_write, write_size, block_index, diskblocks[block_index]);
     // diskblocks[block_index] = diskblocks + sizeof(DiskBlocks) * block_index
-    if(DEBUG) printf("%p + %d = %p \n", diskblocks[block_index], block_offset,  ((char*) diskblocks[block_index]) + block_offset); // TODO: make this offset correct
+    if(1) printf("%p + %d = %p \n", diskblocks[block_index], block_offset,  ((char*) diskblocks[block_index]) + block_offset); // TODO: make this offset correct
     memcpy(((char*) diskblocks[block_index]) + block_offset, buffer + bytes_written, write_size);
 
     bytes_written += write_size;
@@ -518,6 +526,7 @@ void check_size() {
   printf("Node: %d \n", sizeof(Node));
   // This should be 0
   printf("Size difference: %d \n", DISK_SIZE - sizeof(Disk));
+  printf("blocks: %d\n", BLOCKS); 
 }
 
 int main(int argc, char** args) {
@@ -526,9 +535,9 @@ int main(int argc, char** args) {
   // check_size(); return 0;
 
   Disk* disk = malloc(sizeof(Disk));
+  printf("size %d\n", sizeof(char) * BLOCK_QUANTA * INODE_IND * NODE_DATA); 
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
-  
   const int message_size = sizeof(char) * BLOCK_QUANTA * INODE_IND * NODE_DATA;
   char* message1 = malloc(message_size);
   char* message2 = malloc(message_size);
