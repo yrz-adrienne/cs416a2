@@ -387,9 +387,8 @@ int wo_write(int fd,  void* buffer, int bytes){
   double total_bytes = (double) bytes + (double) target->bytes;
   int blocks_needed = (int) ceil( total_bytes / (double) BLOCK_QUANTA);
   if(DEBUG) printf("\nwe need %d blocks \n\n", blocks_needed);
-  // make sure we have enough space to write to
-  // TODO: when we write we are always writing to a new block???
-  // TODO: what if we use up all the blocks??
+
+  
   if (blocks_needed > target->blocks) {
     // we need to allocate more blocks
     int s_indirect_index = 0;
@@ -406,11 +405,11 @@ int wo_write(int fd,  void* buffer, int bytes){
       if (allocated_blocks < INODE_DIR) {
         printf("%d -> %d \n", allocated_blocks, index_newblock);
         target->direct[allocated_blocks] = index_newblock;
-      } else if (allocated_blocks >= INODE_DIR && allocated_blocks < INODE_DIR + INODE_IND * 40) {
+      } else if (allocated_blocks >= INODE_DIR && allocated_blocks < INODE_DIR + INODE_IND * NODE_DATA) {
         // TODO: correctly assign these indices
         // assign the first free pointer in this pnode to be the block
         int block_index = allocated_blocks - INODE_DIR; 
-        int pnode_index = floor(block_index / 40);
+        int pnode_index = floor(block_index / NODE_DATA);
         // target->s_indirect[pnode_index] == -1 // then this is not defined yet
         // 1. find the first free node block
         // 2. format that to be of type 'i'
@@ -479,7 +478,6 @@ int wo_write(int fd,  void* buffer, int bytes){
 
   int bytes_written = 0;
   int block_index = floor( (double) (target->bytes + bytes_written) / BLOCK_QUANTA);
-  // TODO: consider the case where the most recent disk block is not full
   while (bytes_written < bytes) {
     size_t block_offset = bytes_written == 0 ? (size_t) target->bytes % BLOCK_QUANTA : 0;
     int bytes_to_write = bytes - bytes_written;
@@ -527,21 +525,24 @@ int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
-  char message[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.";
+  char message[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.";
+  
   // char message[] = "This is a test.";
   int message_length = sizeof(message);
   char* read_buffer = malloc(message_length*2 + 1);
   printf("buffer address %p \n", read_buffer);
-  int write_result = wo_write(open_result, message, message_length); // TODO consecutive writes are not to the same part of memory
-  int write_result2 = wo_write(open_result, message, message_length); // TODO consecutive writes are not to the same part of memory
+  int write_result = wo_write(open_result, message, message_length); 
+  int write_result2 = wo_write(open_result, message, message_length); 
   int read_result = wo_read(open_result, read_buffer, 2*  message_length);
   
   int res = 0; 
+
 
   // have to turn off debug for this
   for(int i = 0; i < INODE_DIR + INODE_DIND * NODE_DATA + 20; i++){
     res = wo_write(open_result, message, message_length); 
   }
+
   // while(res != -1){
   //   res = wo_write(open_result, message, message_length); 
   //   //apparently this breaks something?
