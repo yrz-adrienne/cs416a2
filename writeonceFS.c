@@ -173,11 +173,13 @@ DiskBlock** get_diskblocks(INode* input) {
       // we need to load in 40 blocks per PNode
       int block_index = index - INODE_DIR;
       int pnode_index = floor(index / 40);
+      if (input->s_indirect[pnode_index] == -1) { break; }
       PNode* target_node = (PNode*) get_node(input->s_indirect[pnode_index]);
-      int pnode_pointer_index = index % 40;
-      if(DEBUG) printf("%d -> pointer_index: %d \n", index, pnode_pointer_index);
+      int pnode_pointer_index = block_index % 40;
+      if(DEBUG) printf("%d -> s_indirect: %d \n", index, pnode_index);
       DiskBlock* current_block = get_diskblock(target_node->direct[pnode_pointer_index]);
-      if(DEBUG) printf("%d -> block_index: %d \n", index, target_node->direct[pnode_pointer_index]);
+      if(DEBUG) printf("%d -> direct: %d \n", index, pnode_pointer_index);
+      if(DEBUG) printf("%d -> diskblock index: %d \n", index, pnode_pointer_index);
       diskblocks[index] = current_block;
       index++;
       continue;
@@ -363,9 +365,9 @@ int wo_read( int fd,  void* buffer, int bytes){
   if(DEBUG) printf("finished reading the file \n");
 }
 
-double ceil(double input){
-  return (int)input + 1; 
-}
+// double ceil(double input){
+//   return (int)input + 1; 
+// }
 
 
 int wo_write(int fd,  void* buffer, int bytes){
@@ -439,6 +441,7 @@ int wo_write(int fd,  void* buffer, int bytes){
         if(target->d_indirect[dpnode_index] == -1){
           int new_ind = first_free_node(); 
           PNode* new = (PNode*)(&loaded_disk->nodes[new_ind]); 
+          init_pnode(new);
           target->d_indirect[dpnode_index] = new_ind;  
           new->type = 'd'; 
         }
@@ -477,11 +480,11 @@ int wo_write(int fd,  void* buffer, int bytes){
   // only write the given amount of bytes
 
   int bytes_written = 0;
-  int block_index = floor( (double) (target->bytes + bytes_written) / BLOCK_QUANTA);
+  int block_index = floor( (double) (target->bytes) / BLOCK_QUANTA);
   while (bytes_written < bytes) {
     size_t block_offset = bytes_written == 0 ? (size_t) target->bytes % BLOCK_QUANTA : 0;
     int bytes_to_write = bytes - bytes_written;
-    int write_size = bytes_to_write > BLOCK_QUANTA ? BLOCK_QUANTA : bytes_to_write;
+    int write_size = bytes_to_write > BLOCK_QUANTA ? BLOCK_QUANTA - block_offset : bytes_to_write - block_offset;
     if(DEBUG) printf("offset: %d\t\tbytes to write: %d\t\twrite size: %d\t\tblock index: %d\t\tmemory location: %p \n", block_offset, bytes_to_write, write_size, block_index, diskblocks[block_index]);
     // diskblocks[block_index] = diskblocks + sizeof(DiskBlocks) * block_index
     if(DEBUG) printf("%p + %d = %p \n", diskblocks[block_index], block_offset,  ((char*) diskblocks[block_index]) + block_offset); // TODO: make this offset correct
@@ -525,35 +528,23 @@ int main(int argc, char** args) {
   Disk* disk = malloc(sizeof(Disk));
   int mount_result = wo_mount("test_disk1", disk);
   int open_result = wo_open("test_file1", 0,  WO_CREATE);
-  char message[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Eget est lorem ipsum dolor sit. Commodo viverra maecenas accumsan lacus vel. Eu sem integer vitae justo eget magna fermentum. Massa tincidunt dui ut ornare lectus sit. Maecenas ultricies mi eget mauris pharetra et ultrices neque ornare. Aliquam vestibulum morbi blandit cursus risus at. Sem integer vitae justo eget magna. Cras semper auctor neque vitae tempus quam pellentesque nec. Massa sed elementum tempus egestas sed sed risus. Morbi non arcu risus quis. Nec feugiat in fermentum posuere urna nec. Diam vel quam elementum pulvinar etiam. Neque volutpat ac tincidunt vitae. Scelerisque varius morbi enim nunc faucibus. Nunc pulvinar sapien et ligula ullamcorper malesuada proin.";
   
+  const int message_size = sizeof(char) * BLOCK_QUANTA * INODE_IND * NODE_DATA;
+  char* message1 = malloc(message_size);
+  char* message2 = malloc(message_size);
+  char* message3 = malloc(message_size);
+
+  memset(message1, 'p', message_size);
+  memset(message2, 'm', message_size);
+  memset(message3, 't', message_size);
+
   // char message[] = "This is a test.";
-  int message_length = sizeof(message);
-  char* read_buffer = malloc(message_length*2 + 1);
+  char* read_buffer = malloc(message_size*2 + 1);
   printf("buffer address %p \n", read_buffer);
-  int write_result = wo_write(open_result, message, message_length); 
-  int write_result2 = wo_write(open_result, message, message_length); 
-  int read_result = wo_read(open_result, read_buffer, 2*  message_length);
-  
-  int res = 0; 
-
-
-  // have to turn off debug for this
-  for(int i = 0; i < INODE_DIR + INODE_DIND * NODE_DATA + 20; i++){
-    res = wo_write(open_result, message, message_length); 
-  }
-
-  // while(res != -1){
-  //   res = wo_write(open_result, message, message_length); 
-  //   //apparently this breaks something?
-  // }
-
-  //print_disk(loaded_disk); 
-  if (read_result >= 0) {
-    printf("read result: %s \n", read_buffer);
-  } else {
-    printf("buffer result: %d \n", read_result);
-  }
+  int writes[3];
+  writes[0] = wo_write(open_result, message1, message_size);
+  writes[1] = wo_write(open_result, message2, message_size);
+  writes[2] = wo_write(open_result, message3, message_size);
 
   int unmount_result = wo_unmount(disk);
 
